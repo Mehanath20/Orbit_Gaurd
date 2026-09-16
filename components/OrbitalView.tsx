@@ -367,7 +367,7 @@ function OrbitalScene({
       onHoverChange?.({
         id,
         label: r.debrisName,
-        sub: `${r.objectType} · NORAD ${r.noradId ?? 'N/A'}\nClosest: ${r.minDistance_km.toFixed(1)} km`,
+        sub: `${r.objectType} · NORAD ${r.debrisId ?? 'N/A'}\nClosest: ${r.minDistance_km.toFixed(1)} km`,
         color: RISK_COLORS_LOCAL[r.riskLevel] || '#ffffff',
       });
     }
