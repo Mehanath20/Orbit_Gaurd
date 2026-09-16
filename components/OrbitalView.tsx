@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { ClosestApproachResult } from '../lib/types';
 import { PRIMARY_SATELLITE, DEBRIS_OBJECTS } from '../lib/dataset';
 import { getOrbitPoints } from '../lib/orbitEngine';
+import SolarSystemBackground from './SolarSystemBackground';
 
 const RISK_COLORS: Record<string, string> = {
   CRITICAL: '#ff2d55',
@@ -396,8 +397,10 @@ function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate }: ScenePr
       <directionalLight position={[-10, -3, -6]} intensity={0.4} color="#38bdf8" />
       <pointLight position={[0, 8, 2]} intensity={0.3} color="#00d4ff" />
 
+      {/* 3D Solar System (Sun, Moon, Mars, Jupiter, Saturn, Asteroid Belt, Stars, Nebulae) */}
+      <SolarSystemBackground />
+
       <Earth />
-      <Stars radius={200} depth={60} count={3000} factor={4} saturation={0} fade />
 
       {/* ISRO-SAT1 orbit path */}
       <OrbitPath
@@ -447,7 +450,7 @@ function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate }: ScenePr
         enableDamping
         dampingFactor={0.05}
         minDistance={3}
-        maxDistance={20}
+        maxDistance={45}
         enablePan={false}
       />
     </>

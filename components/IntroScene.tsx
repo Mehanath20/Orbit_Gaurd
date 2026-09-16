@@ -5,6 +5,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stars, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
+import SolarSystemBackground from './SolarSystemBackground';
 
 /* ── Earth Mesh ───────────────────────────────────────────────── */
 function Earth() {
@@ -245,13 +246,15 @@ function SceneContent() {
       <directionalLight position={[8, 5, 7]} intensity={2.2} color="#ffffff" />
       <directionalLight position={[-8, -2, -6]} intensity={0.4} color="#38bdf8" />
       <pointLight position={[0, 8, 2]} intensity={0.3} color="#00d4ff" />
+      {/* 3D Solar System Background (Sun, Moon, Planets, Asteroid Belt, Cosmic Dust) */}
+      <SolarSystemBackground />
+
       <Earth />
       <OrbitRings />
       <Satellite />
       {Array.from({ length: 40 }, (_, i) => (
         <DebrisParticle key={i} index={i} />
       ))}
-      <Stars radius={200} depth={60} count={3000} factor={4} saturation={0} fade />
       <CameraRig />
     </>
   );
