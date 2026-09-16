@@ -323,20 +323,35 @@ function ClosestApproachViz({
 /* ── Camera Controller ────────────────────────────────────────────── */
 function CameraController({
   selectedPos,
+  viewMode,
+  satPos,
 }: {
   selectedPos: THREE.Vector3 | null;
+  viewMode: 'EARTH' | 'ORRERY' | 'SAT';
+  satPos: THREE.Vector3 | null;
 }) {
   const { camera } = useThree();
-  const targetRef = useRef(new THREE.Vector3(0, 0, 6));
+  const targetCamPos = useRef<THREE.Vector3 | null>(null);
+
+  useEffect(() => {
+    if (selectedPos) {
+      targetCamPos.current = selectedPos.clone().add(new THREE.Vector3(1.2, 1.2, 2.2));
+    } else if (viewMode === 'ORRERY') {
+      targetCamPos.current = new THREE.Vector3(22, 34, 46);
+    } else if (viewMode === 'EARTH') {
+      targetCamPos.current = new THREE.Vector3(0, 2.2, 7.2);
+    } else if (viewMode === 'SAT' && satPos) {
+      targetCamPos.current = satPos.clone().add(new THREE.Vector3(0.6, 0.6, 1.4));
+    }
+  }, [viewMode, selectedPos, satPos]);
 
   useFrame(() => {
-    if (selectedPos) {
-      const desiredPos = selectedPos.clone().normalize().multiplyScalar(6);
-      targetRef.current.lerp(desiredPos, 0.02);
-    } else {
-      targetRef.current.lerp(new THREE.Vector3(0, 0, 6), 0.01);
+    if (targetCamPos.current) {
+      camera.position.lerp(targetCamPos.current, 0.04);
+      if (camera.position.distanceTo(targetCamPos.current) < 0.2) {
+        targetCamPos.current = null;
+      }
     }
-    camera.position.lerp(targetRef.current, 0.05);
   });
 
   return null;
@@ -348,9 +363,10 @@ interface SceneProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onSatPosUpdate: (pos: THREE.Vector3) => void;
+  viewMode: 'EARTH' | 'ORRERY' | 'SAT';
 }
 
-function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate }: SceneProps) {
+function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate, viewMode }: SceneProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const debrisPosMap = useRef<Map<string, THREE.Vector3>>(new Map());
   const satPos = useRef<THREE.Vector3 | null>(null);
@@ -445,13 +461,13 @@ function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate }: ScenePr
       />
 
       {/* Camera + controls */}
-      <CameraController selectedPos={selectedPos} />
+      <CameraController selectedPos={selectedPos} viewMode={viewMode} satPos={satPos.current} />
       <OrbitControls
         enableDamping
-        dampingFactor={0.05}
-        minDistance={3}
-        maxDistance={45}
-        enablePan={false}
+        dampingFactor={0.06}
+        minDistance={2.5}
+        maxDistance={250}
+        enablePan={true}
       />
     </>
   );
@@ -461,13 +477,56 @@ function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate }: ScenePr
 interface OverlayProps {
   results: ClosestApproachResult[];
   selectedId: string | null;
+  viewMode: 'EARTH' | 'ORRERY' | 'SAT';
+  onViewModeChange: (m: 'EARTH' | 'ORRERY' | 'SAT') => void;
 }
 
-function OverlayUI({ results, selectedId }: OverlayProps) {
+function OverlayUI({ results, selectedId, viewMode, onViewModeChange }: OverlayProps) {
   const selected = results.find((r) => r.debrisId === selectedId);
 
   return (
     <>
+      {/* Center Top: View Mode Switcher */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 16,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          background: 'rgba(0,0,0,0.7)',
+          backdropFilter: 'blur(16px)',
+          padding: '4px 6px',
+          borderRadius: 9999,
+          border: '1px solid rgba(255,255,255,0.1)',
+        }}
+      >
+        <button
+          onClick={() => onViewModeChange('ORRERY')}
+          className={`btn-pill ${viewMode === 'ORRERY' ? 'active' : ''}`}
+          style={{ fontSize: 9.5, padding: '4px 12px' }}
+        >
+          🪐 SOLAR SYSTEM
+        </button>
+        <button
+          onClick={() => onViewModeChange('EARTH')}
+          className={`btn-pill ${viewMode === 'EARTH' ? 'active' : ''}`}
+          style={{ fontSize: 9.5, padding: '4px 12px' }}
+        >
+          🌍 EARTH FOCUS
+        </button>
+        <button
+          onClick={() => onViewModeChange('SAT')}
+          className={`btn-pill ${viewMode === 'SAT' ? 'active' : ''}`}
+          style={{ fontSize: 9.5, padding: '4px 12px' }}
+        >
+          🛰️ SATELLITE
+        </button>
+      </div>
+
       {/* Top-Left */}
       <div
         style={{
@@ -584,7 +643,7 @@ function OverlayUI({ results, selectedId }: OverlayProps) {
           whiteSpace: 'nowrap',
         }}
       >
-        ← Drag to rotate · Scroll to zoom · Click debris to track →
+        ← Drag to rotate/pan · Scroll to zoom · Click debris or modes to view →
       </div>
     </>
   );
@@ -599,6 +658,7 @@ interface OrbitalViewProps {
 
 export default function OrbitalView({ results, selectedId, onSelect }: OrbitalViewProps) {
   const [satPos, setSatPos] = useState<THREE.Vector3 | null>(null);
+  const [viewMode, setViewMode] = useState<'EARTH' | 'ORRERY' | 'SAT'>('ORRERY');
   const [webglOk, setWebglOk] = useState(true);
 
   useEffect(() => {
@@ -638,7 +698,7 @@ export default function OrbitalView({ results, selectedId, onSelect }: OrbitalVi
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <Canvas
-        camera={{ position: [0, 2, 8], fov: 45 }}
+        camera={{ position: [22, 34, 46], fov: 45 }}
         gl={{ antialias: true, alpha: false }}
         style={{ background: '#000000' }}
       >
@@ -648,11 +708,17 @@ export default function OrbitalView({ results, selectedId, onSelect }: OrbitalVi
             selectedId={selectedId}
             onSelect={onSelect}
             onSatPosUpdate={setSatPos}
+            viewMode={viewMode}
           />
         </Suspense>
       </Canvas>
 
-      <OverlayUI results={results} selectedId={selectedId} />
+      <OverlayUI
+        results={results}
+        selectedId={selectedId}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+      />
     </div>
   );
 }
