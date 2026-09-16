@@ -6,6 +6,9 @@ export interface DebrisObject {
   tle1: string;
   tle2: string;
   type: 'Rocket Body' | 'Dead Satellite' | 'Fragment';
+  mass_kg?: number;
+  size_m?: number;
+  launchYear?: number;
 }
 
 export interface ClosestApproachResult {

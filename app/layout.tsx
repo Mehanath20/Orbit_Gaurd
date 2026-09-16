@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import ErrorLogger from './ErrorLogger';
 
 export const metadata: Metadata = {
   title: 'OrbitGuard — Space Debris Collision Risk Estimator',
@@ -20,7 +21,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
-      <body>{children}</body>
+      <body>
+        <ErrorLogger />
+        {children}
+      </body>
     </html>
   );
 }

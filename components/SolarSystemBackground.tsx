@@ -1,13 +1,16 @@
 'use client';
 
 import { useRef, useMemo, useEffect, useState } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
+import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import Sun from './models/Sun';
+import Moon from './models/Moon';
 
 /* ── Planetary Configuration ──────────────────────────────────── */
 // Sun is placed such that Earth's orbit passes precisely through [0, 0, 0]
-const SUN_POS = new THREE.Vector3(-32, -5, -28);
-const R_EARTH = SUN_POS.clone().negate().length(); // ~42.81
+const SUN_POS = new THREE.Vector3(-100, -20, -50);
+const R_EARTH = SUN_POS.length(); // ~113.5
 
 interface PlanetDef {
   name: string;
@@ -28,7 +31,7 @@ const PLANETS: PlanetDef[] = [
   {
     name: 'Mercury',
     radius: 0.45,
-    orbitRadius: 14,
+    orbitRadius: 35,
     orbitSpeed: 0.04,
     initialAngle: 1.2,
     texturePath: '/textures/mercury.jpg',
@@ -37,7 +40,7 @@ const PLANETS: PlanetDef[] = [
   {
     name: 'Venus',
     radius: 0.85,
-    orbitRadius: 25,
+    orbitRadius: 65,
     orbitSpeed: 0.025,
     initialAngle: 3.8,
     texturePath: '/textures/venus.jpg',
@@ -46,7 +49,7 @@ const PLANETS: PlanetDef[] = [
   {
     name: 'Mars',
     radius: 0.65,
-    orbitRadius: 56,
+    orbitRadius: 155,
     orbitSpeed: 0.012,
     initialAngle: 4.5,
     texturePath: '/textures/mars.jpg',
@@ -59,7 +62,7 @@ const PLANETS: PlanetDef[] = [
   {
     name: 'Jupiter',
     radius: 3.2,
-    orbitRadius: 104,
+    orbitRadius: 280,
     orbitSpeed: 0.005,
     initialAngle: 2.1,
     texturePath: '/textures/jupiter.jpg',
@@ -74,7 +77,7 @@ const PLANETS: PlanetDef[] = [
   {
     name: 'Saturn',
     radius: 2.4,
-    orbitRadius: 136,
+    orbitRadius: 380,
     orbitSpeed: 0.0032,
     initialAngle: 5.6,
     texturePath: '/textures/saturn.jpg',
@@ -91,7 +94,7 @@ const PLANETS: PlanetDef[] = [
   {
     name: 'Uranus',
     radius: 1.5,
-    orbitRadius: 168,
+    orbitRadius: 480,
     orbitSpeed: 0.002,
     initialAngle: 0.9,
     texturePath: '/textures/uranus.jpg',
@@ -101,7 +104,7 @@ const PLANETS: PlanetDef[] = [
   {
     name: 'Neptune',
     radius: 1.45,
-    orbitRadius: 198,
+    orbitRadius: 580,
     orbitSpeed: 0.0014,
     initialAngle: 3.2,
     texturePath: '/textures/neptune.jpg',
@@ -111,7 +114,7 @@ const PLANETS: PlanetDef[] = [
   {
     name: 'Pluto',
     radius: 0.3,
-    orbitRadius: 228,
+    orbitRadius: 660,
     orbitSpeed: 0.0009,
     initialAngle: 1.8,
     texturePath: '/textures/asteroid.jpg',
@@ -148,11 +151,11 @@ function CometOrbit() {
     const segments = 120;
     const pts: THREE.Vector3[] = [];
     // High-eccentricity ellipse
-    const a = 110;
-    const b = 38;
+    const a = 280;
+    const b = 90;
     for (let i = 0; i <= segments; i++) {
       const th = (i / segments) * Math.PI * 2;
-      pts.push(new THREE.Vector3(Math.cos(th) * a - 40, Math.sin(th) * 8, Math.sin(th) * b));
+      pts.push(new THREE.Vector3(Math.cos(th) * a - 100, Math.sin(th) * 20, Math.sin(th) * b));
     }
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
     const mat = new THREE.LineBasicMaterial({
@@ -248,7 +251,7 @@ function CentralSun() {
 }
 
 /* ── Revolving Planet Body ─────────────────────────────────────── */
-function Planet({ def }: { def: PlanetDef }) {
+function Planet({ def, onSelectPlanet, hideLabels }: { def: PlanetDef; onSelectPlanet?: (id: string) => void, hideLabels?: boolean }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
   const moonsRef = useRef<THREE.Group>(null);
@@ -344,6 +347,32 @@ function Planet({ def }: { def: PlanetDef }) {
             ))}
           </group>
         )}
+
+        {/* Planet Label */}
+        {!hideLabels && (
+          <Html distanceFactor={40} zIndexRange={[100, 0]}>
+            <div 
+              onClick={(e) => { e.stopPropagation(); if (onSelectPlanet) onSelectPlanet(def.name); }}
+              style={{ 
+                color: '#fff', 
+                fontFamily: 'Space Grotesk, sans-serif', 
+                fontSize: 12, 
+                fontWeight: 600, 
+                background: 'rgba(0,0,0,0.5)', 
+                padding: '2px 6px', 
+                borderRadius: 4,
+                border: def.name === 'Earth' ? '1px solid rgba(0,212,255,0.5)' : '1px solid rgba(255,255,255,0.2)',
+                cursor: 'pointer',
+                userSelect: 'none',
+                transform: 'translate3d(15px, -15px, 0)'
+              }}
+              onPointerEnter={(e) => { (e.target as HTMLElement).style.borderColor = def.name === 'Earth' ? '#38bdf8' : '#00d4ff'; }}
+              onPointerLeave={(e) => { (e.target as HTMLElement).style.borderColor = def.name === 'Earth' ? 'rgba(0,212,255,0.5)' : 'rgba(255,255,255,0.2)'; }}
+            >
+              {def.name}
+            </div>
+          </Html>
+        )}
       </group>
     </group>
   );
@@ -380,10 +409,10 @@ function GoldenAsteroidBelt() {
     ];
 
     for (let i = 0; i < count; i++) {
-      // Toroidal band between radius 70 and 90
-      const r = 70 + Math.pow(Math.random(), 0.8) * 20;
+      // Toroidal band between radius 180 and 230
+      const r = 180 + Math.pow(Math.random(), 0.8) * 50;
       const theta = Math.random() * Math.PI * 2;
-      const height = (Math.random() - 0.5) * 4.5 * (1 - Math.abs(r - 80) / 10);
+      const height = (Math.random() - 0.5) * 12.0 * (1 - Math.abs(r - 205) / 25);
 
       pos[i * 3] = Math.cos(theta) * r;
       pos[i * 3 + 1] = height;
@@ -401,11 +430,11 @@ function GoldenAsteroidBelt() {
   // 2. 70 larger tumbling 3D faceted asteroid rocks
   const rocks = useMemo(() => {
     const list = [];
-    const count = 75;
+    const count = 120;
     for (let i = 0; i < count; i++) {
-      const r = 72 + Math.random() * 16;
+      const r = 185 + Math.random() * 40;
       const th = (i / count) * Math.PI * 2 + Math.random() * 0.1;
-      const y = (Math.random() - 0.5) * 3.5;
+      const y = (Math.random() - 0.5) * 10.0;
       list.push({
         pos: [Math.cos(th) * r, y, Math.sin(th) * r] as [number, number, number],
         scale: 0.22 + Math.random() * 0.45,
@@ -485,66 +514,6 @@ function GoldenAsteroidBelt() {
   );
 }
 
-/* ── The Moon (Orbiting Earth at [0, 0, 0]) ─────────────────────── */
-function Moon() {
-  const moonRef = useRef<THREE.Mesh>(null);
-  const [moonMap, setMoonMap] = useState<THREE.Texture | null>(null);
-  const angleRef = useRef(1.1);
-
-  useEffect(() => {
-    const loader = new THREE.TextureLoader();
-    loader.load('/textures/moon.jpg', (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      setMoonMap(tex);
-    });
-  }, []);
-
-  useFrame((_, delta) => {
-    angleRef.current += delta * 0.02;
-    const r = 9.2;
-    const x = Math.cos(angleRef.current) * r;
-    const z = Math.sin(angleRef.current) * r;
-    const y = Math.sin(angleRef.current * 0.5) * 1.5;
-
-    if (moonRef.current) {
-      moonRef.current.position.set(x, y, z);
-      moonRef.current.rotation.y += delta * 0.02;
-    }
-  });
-
-  const lunarOrbit = useMemo(() => {
-    const pts: THREE.Vector3[] = [];
-    const count = 72;
-    for (let i = 0; i <= count; i++) {
-      const a = (i / count) * Math.PI * 2;
-      pts.push(new THREE.Vector3(Math.cos(a) * 9.2, Math.sin(a * 0.5) * 1.5, Math.sin(a) * 9.2));
-    }
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const mat = new THREE.LineBasicMaterial({
-      color: '#94a3b8',
-      transparent: true,
-      opacity: 0.15,
-    });
-    return new THREE.Line(geo, mat);
-  }, []);
-
-  return (
-    <group>
-      <primitive object={lunarOrbit} />
-      <mesh ref={moonRef}>
-        <sphereGeometry args={[0.46, 32, 32]} />
-        <meshStandardMaterial
-          map={moonMap || undefined}
-          bumpMap={moonMap || undefined}
-          bumpScale={0.03}
-          roughness={0.92}
-          metalness={0.08}
-          color={moonMap ? '#ffffff' : '#cbd5e1'}
-        />
-      </mesh>
-    </group>
-  );
-}
 
 /* ── Deep Space Cosmos & Nebulae ───────────────────────────────── */
 function DeepSpaceStars() {
@@ -615,8 +584,13 @@ function DeepSpaceStars() {
   );
 }
 
-/* ── Complete Solar System Orrery ──────────────────────────────── */
-export default function SolarSystemBackground() {
+export default function SolarSystemBackground({ 
+  onSelectPlanet, 
+  hideLabels 
+}: { 
+  onSelectPlanet?: (id: string) => void;
+  hideLabels?: boolean;
+}) {
   return (
     <group>
       {/* 1. Deep Space Stellar Cosmos */}
@@ -627,31 +601,72 @@ export default function SolarSystemBackground() {
 
       {/* 3. Solar System Centered at SUN_POS */}
       <group position={[SUN_POS.x, SUN_POS.y, SUN_POS.z]} rotation={[0.08, 0, 0.04]}>
-        {/* Central Sun */}
-        <CentralSun />
+        {/* Sun and Label */}
+        <Sun />
+        {!hideLabels && (
+          <Html distanceFactor={50} zIndexRange={[100, 0]}>
+            <div 
+            onClick={(e) => { e.stopPropagation(); if (onSelectPlanet) onSelectPlanet('Sun'); }}
+            style={{ 
+              color: '#fff', 
+              fontFamily: 'Space Grotesk, sans-serif', 
+              fontSize: 14, 
+              fontWeight: 700, 
+              background: 'rgba(0,0,0,0.5)', 
+              padding: '2px 8px', 
+              borderRadius: 4,
+              border: '1px solid #fbbf24',
+              cursor: 'pointer',
+              userSelect: 'none',
+              transform: 'translate3d(25px, -25px, 0)'
+            }}
+          >
+            Sun
+          </div>
+        </Html>
+        )}
 
-        {/* Concentric Planetary Orbit Rings (delicate white/cyan/gold lines as in image) */}
-        <OrbitRing radius={14} color="#94a3b8" />
-        <OrbitRing radius={25} color="#fef08a" />
-        <OrbitRing radius={R_EARTH} color="#00d4ff" highlight /> {/* Earth's Orbit Path passing through Earth! */}
-        <OrbitRing radius={56} color="#f87171" />
-        <OrbitRing radius={104} color="#fed7aa" />
-        <OrbitRing radius={136} color="#fde047" />
-        <OrbitRing radius={168} color="#a5f3fc" />
-        <OrbitRing radius={198} color="#60a5fa" />
-        <OrbitRing radius={228} color="#cbd5e1" />
+        {/* Revolving Planets */}
+        {PLANETS.map((def) => (
+          <group key={def.name}>
+            <OrbitRing radius={def.orbitRadius} color={def.color} />
+            <Planet def={def} onSelectPlanet={onSelectPlanet} hideLabels={hideLabels} />
+          </group>
+        ))}
+
+        {/* Earth Orbit Reference */}
+        <OrbitRing radius={R_EARTH} color="#00d4ff" highlight />
 
         {/* Eccentric Crossing Comet Orbit Line */}
         <CometOrbit />
 
-        {/* Revolving Planets */}
-        {PLANETS.map((def) => (
-          <Planet key={def.name} def={def} />
-        ))}
-
         {/* Dense Golden Asteroid Belt River */}
         <GoldenAsteroidBelt />
       </group>
+
+      {/* Earth Label (Earth is located at origin [0,0,0]) */}
+      {!hideLabels && (
+        <Html position={[0, 0, 0]} distanceFactor={40} zIndexRange={[100, 0]}>
+          <div 
+            onClick={(e) => { e.stopPropagation(); if (onSelectPlanet) onSelectPlanet('Earth'); }}
+            style={{ 
+              color: '#fff', 
+              fontFamily: 'Space Grotesk, sans-serif', 
+              fontSize: 12, 
+              fontWeight: 600, 
+              background: 'rgba(0,0,0,0.5)', 
+              padding: '2px 6px', 
+              borderRadius: 4,
+              border: '1px solid rgba(0,212,255,0.5)',
+              cursor: 'pointer',
+              userSelect: 'none',
+              transform: 'translate3d(15px, -15px, 0)'
+            }}
+          >
+            Earth
+          </div>
+        </Html>
+      )}
     </group>
   );
 }

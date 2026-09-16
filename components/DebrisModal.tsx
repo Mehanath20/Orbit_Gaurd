@@ -30,6 +30,7 @@ const RISK_LABELS: Record<RiskLevel, string> = {
 interface DebrisModalProps {
   result: ClosestApproachResult | null;
   onClose: () => void;
+  onIntercept: (id: string) => void;
 }
 
 function InfoRow({ label, value }: { label: string; value: string | number }) {
@@ -161,7 +162,7 @@ function CustomTooltip({
   );
 }
 
-export default function DebrisModal({ result, onClose }: DebrisModalProps) {
+export default function DebrisModal({ result, onClose, onIntercept }: DebrisModalProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -203,15 +204,14 @@ export default function DebrisModal({ result, onClose }: DebrisModalProps) {
 
           {/* Modal */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
+            initial={{ opacity: 0, scale: 0.95, x: '-50%', y: '-50%' }}
+            animate={{ opacity: 1, scale: 1, x: '-50%', y: '-50%' }}
+            exit={{ opacity: 0, scale: 0.95, x: '-50%', y: '-50%' }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
             style={{
               position: 'fixed',
               top: '50%',
               left: '50%',
-              transform: 'translate(-50%, -50%)',
               zIndex: 201,
               width: '100%',
               maxWidth: 640,
@@ -282,7 +282,8 @@ export default function DebrisModal({ result, onClose }: DebrisModalProps) {
                   {result.objectType} · vs ISRO-SAT1
                 </div>
               </div>
-              <button
+              {/* Close button */}
+              <motion.button
                 onClick={onClose}
                 style={{
                   background: 'rgba(255,255,255,0.05)',
@@ -296,20 +297,12 @@ export default function DebrisModal({ result, onClose }: DebrisModalProps) {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  transition: 'all 0.15s ease',
                   flexShrink: 0,
                 }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                  e.currentTarget.style.color = '#fff';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
-                  e.currentTarget.style.color = 'rgba(255,255,255,0.5)';
-                }}
+                whileHover={{ background: 'rgba(255,255,255,0.1)', color: '#fff', scale: 1.1 }}
               >
                 ×
-              </button>
+              </motion.button>
             </div>
 
             {/* Orbital Elements Grid */}
@@ -447,6 +440,35 @@ export default function DebrisModal({ result, onClose }: DebrisModalProps) {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
+            {/* Action Button */}
+            {(result.riskLevel === 'CRITICAL' || result.riskLevel === 'HIGH') && (
+              <motion.button
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  marginTop: 20,
+                  marginBottom: 16,
+                  background: 'rgba(255, 45, 85, 0.15)',
+                  border: '1px solid rgba(255, 45, 85, 0.5)',
+                  borderRadius: 8,
+                  color: '#ff2d55',
+                  fontFamily: 'Space Grotesk, sans-serif',
+                  fontSize: 16,
+                  fontWeight: 700,
+                  letterSpacing: '0.1em',
+                  cursor: 'pointer',
+                  boxShadow: '0 0 20px rgba(255, 45, 85, 0.2)',
+                  animation: 'pulse-glow-critical 2s infinite',
+                }}
+                whileHover={{ background: 'rgba(255, 45, 85, 0.3)', boxShadow: '0 0 30px rgba(255,45,85,0.8)' }}
+                onClick={() => {
+                  onIntercept(result.debrisId);
+                  onClose();
+                }}
+              >
+                ⚠ LAUNCH INTERCEPTOR
+              </motion.button>
+            )}
 
             {/* Disclaimer */}
             <div

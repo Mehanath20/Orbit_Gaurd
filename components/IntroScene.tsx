@@ -2,103 +2,169 @@
 
 import { useRef, useEffect, useState, useMemo, Suspense } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Stars, OrbitControls } from '@react-three/drei';
+import { OrbitControls, Html, Sparkles, Stars, Line } from '@react-three/drei';
+import { EffectComposer, Bloom, Vignette, Noise } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { motion, AnimatePresence } from 'framer-motion';
 import SolarSystemBackground from './SolarSystemBackground';
+import SatelliteModel from './models/Satellite';
+import DebrisObject from './models/DebrisObject';
+
+/* ── Shaders ──────────────────────────────────────────────────── */
+const EARTH_VERT = `
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vWorldPosition;
+  void main() {
+    vUv = uv;
+    vNormal = normalize(normalMatrix * normal);
+    vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const EARTH_FRAG = `
+  uniform sampler2D uDay;
+  uniform sampler2D uNight;
+  uniform sampler2D uClouds;
+  uniform vec3 uSunDir;
+  uniform float uTime;
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vWorldPosition;
+  void main() {
+    float sunDot  = dot(normalize(vNormal), normalize(uSunDir));
+    float dayMix  = smoothstep(-0.2, 0.25, sunDot);
+    vec4 dayCol   = texture2D(uDay, vUv);
+    vec4 nightCol = texture2D(uNight, vUv);
+    vec4 nightLit = nightCol * 3.0;
+    vec2 cloudUv  = vUv + vec2(uTime * 0.004, 0.0);
+    float cloud   = texture2D(uClouds, cloudUv).r;
+    vec4 earth    = mix(nightLit, dayCol, dayMix);
+    float oceanMask = smoothstep(0.3, 0.7, dayCol.b - max(dayCol.r, dayCol.g) * 0.5);
+    float spec      = pow(max(sunDot, 0.0), 50.0) * oceanMask * 0.7;
+    earth.rgb      += vec3(0.7, 0.85, 1.0) * spec * dayMix;
+    vec3 cloudCol   = mix(vec3(0.05,0.05,0.08), vec3(1.0), dayMix);
+    earth.rgb       = mix(earth.rgb, cloudCol, cloud * 0.4 * max(dayMix, 0.05));
+    float rim       = pow(1.0 - abs(sunDot), 6.0) * smoothstep(-0.1, 0.2, sunDot);
+    earth.rgb      += vec3(1.0, 0.5, 0.15) * rim * 0.6;
+    vec3 viewDir    = normalize(cameraPosition - vWorldPosition);
+    float fresnel   = pow(1.0 - max(dot(normalize(vNormal), viewDir), 0.0), 3.5);
+    earth.rgb       = mix(earth.rgb, vec3(0.25, 0.55, 1.0), fresnel * 0.28 * max(sunDot + 0.3, 0.0));
+    gl_FragColor    = earth;
+  }
+`;
+
+const ATMO_FRAG = `
+  varying vec3 vNormal;
+  varying vec3 vWorldPosition;
+  uniform vec3 uSunDir;
+  void main() {
+    vec3 viewDir    = normalize(cameraPosition - vWorldPosition);
+    float rim       = pow(1.0 - max(dot(normalize(vNormal), viewDir), 0.0), 2.8);
+    float sunFacing = dot(normalize(vNormal), normalize(uSunDir));
+    float dayFactor = smoothstep(-0.3, 0.6, sunFacing);
+    vec3 day        = vec3(0.25, 0.58, 1.0);
+    vec3 night      = vec3(0.02, 0.04, 0.14);
+    vec3 col        = mix(night, day, dayFactor);
+    float term      = pow(1.0 - abs(sunFacing), 5.0) * smoothstep(-0.1, 0.2, sunFacing);
+    col             = mix(col, vec3(1.0, 0.45, 0.1), term * 0.55);
+    gl_FragColor    = vec4(col, rim * 0.65);
+  }
+`;
+
+const SUN_DIR_INTRO = new THREE.Vector3(6, 3, 5).normalize();
 
 /* ── Earth Mesh ───────────────────────────────────────────────── */
 function Earth() {
-  const earthRef = useRef<THREE.Mesh>(null);
+  const meshRef   = useRef<THREE.Mesh>(null);
   const cloudsRef = useRef<THREE.Mesh>(null);
-  const atmosphereRef = useRef<THREE.Mesh>(null);
+  const outerRef  = useRef<THREE.Mesh>(null);
 
-  const [textures, setTextures] = useState<{
-    map: THREE.Texture | null;
-    bumpMap: THREE.Texture | null;
-    roughnessMap: THREE.Texture | null;
-    cloudsMap: THREE.Texture | null;
-  }>({
-    map: null,
-    bumpMap: null,
-    roughnessMap: null,
-    cloudsMap: null,
-  });
+  const [dayTex,   setDayTex]   = useState<THREE.Texture | null>(null);
+  const [nightTex, setNightTex] = useState<THREE.Texture | null>(null);
+  const [cloudTex, setCloudTex] = useState<THREE.Texture | null>(null);
 
   useEffect(() => {
     const loader = new THREE.TextureLoader();
-    loader.load('/textures/earth-blue-marble.jpg', (map) => {
-      map.colorSpace = THREE.SRGBColorSpace;
-      setTextures((prev) => ({ ...prev, map }));
-    });
-    loader.load('/textures/earth-topology.png', (bumpMap) => {
-      setTextures((prev) => ({ ...prev, bumpMap }));
-    });
-    loader.load('/textures/earth-water.png', (roughnessMap) => {
-      setTextures((prev) => ({ ...prev, roughnessMap }));
-    });
-    loader.load('/textures/earth-clouds.png', (cloudsMap) => {
-      setTextures((prev) => ({ ...prev, cloudsMap }));
-    });
+    loader.load('/textures/earth-blue-marble.jpg', (t) => { t.colorSpace = THREE.SRGBColorSpace; setDayTex(t); });
+    loader.load('/textures/earth-night.jpg',       (t) => { t.colorSpace = THREE.SRGBColorSpace; setNightTex(t); });
+    loader.load('/textures/earth-clouds.png',      (t) => { setCloudTex(t); });
   }, []);
 
+  const uniforms = useMemo(() => ({
+    uDay:    { value: null as THREE.Texture | null },
+    uNight:  { value: null as THREE.Texture | null },
+    uClouds: { value: null as THREE.Texture | null },
+    uSunDir: { value: SUN_DIR_INTRO.clone() },
+    uTime:   { value: 0 },
+  }), []);
+
+  useEffect(() => { uniforms.uDay.value    = dayTex;   }, [dayTex,   uniforms]);
+  useEffect(() => { uniforms.uNight.value  = nightTex; }, [nightTex, uniforms]);
+  useEffect(() => { uniforms.uClouds.value = cloudTex; }, [cloudTex, uniforms]);
+
   useFrame((_, delta) => {
-    if (earthRef.current) earthRef.current.rotation.y += delta * 0.03;
-    if (cloudsRef.current) {
-      cloudsRef.current.rotation.y += delta * 0.042;
-      cloudsRef.current.rotation.x += delta * 0.003;
-    }
-    if (atmosphereRef.current) atmosphereRef.current.rotation.y += delta * 0.03;
+    uniforms.uTime.value += delta;
+    if (meshRef.current)   meshRef.current.rotation.y   += delta * 0.04;
+    if (cloudsRef.current) cloudsRef.current.rotation.y += delta * 0.055;
+    if (outerRef.current)  outerRef.current.rotation.y  += delta * 0.04;
   });
 
   return (
     <group>
-      {/* 1. Earth sphere with day texture, bump relief & ocean specular */}
-      <mesh ref={earthRef}>
-        <sphereGeometry args={[2, 64, 64]} />
-        <meshStandardMaterial
-          map={textures.map || undefined}
-          bumpMap={textures.bumpMap || undefined}
-          bumpScale={0.06}
-          roughnessMap={textures.roughnessMap || undefined}
-          roughness={0.65}
-          metalness={0.12}
-          color={textures.map ? '#ffffff' : '#1e3a8a'}
-        />
+      {/* Glow halo ring */}
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[2.18, 2.8, 128]} />
+        <meshBasicMaterial color="#1a6fff" transparent opacity={0.07} side={THREE.DoubleSide} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
 
-      {/* 2. Cloud layer */}
-      <mesh ref={cloudsRef}>
-        <sphereGeometry args={[2.025, 64, 64]} />
-        {textures.cloudsMap ? (
-          <meshStandardMaterial
-            map={textures.cloudsMap}
-            transparent={true}
-            opacity={0.4}
-            blending={THREE.AdditiveBlending}
+      {/* Earth surface */}
+      <mesh ref={meshRef}>
+        <sphereGeometry args={[2, 96, 96]} />
+        {dayTex && nightTex ? (
+          <shaderMaterial vertexShader={EARTH_VERT} fragmentShader={EARTH_FRAG} uniforms={uniforms} />
+        ) : (
+          <meshStandardMaterial color="#1e3a8a" />
+        )}
+      </mesh>
+
+
+
+      {/* Inner atmospheric fringe */}
+      <mesh ref={outerRef}>
+        <sphereGeometry args={[2.07, 64, 64]} />
+        {dayTex ? (
+          <shaderMaterial
+            vertexShader={EARTH_VERT}
+            fragmentShader={ATMO_FRAG}
+            uniforms={uniforms}
+            transparent
             depthWrite={false}
+            side={THREE.BackSide}
+            blending={THREE.AdditiveBlending}
           />
-        ) : null}
+        ) : (
+          <meshBasicMaterial color="#00b4d8" transparent opacity={0.12} side={THREE.BackSide} blending={THREE.AdditiveBlending} />
+        )}
       </mesh>
 
-      {/* 3. Atmospheric outer glow */}
-      <mesh ref={atmosphereRef}>
-        <sphereGeometry args={[2.08, 64, 64]} />
-        <meshBasicMaterial
-          color="#00b4d8"
-          transparent
-          opacity={0.12}
-          side={THREE.BackSide}
-          blending={THREE.AdditiveBlending}
-        />
+      {/* Outer halo shell */}
+      <mesh>
+        <sphereGeometry args={[2.18, 64, 64]} />
+        <meshBasicMaterial color="#1a5fff" transparent opacity={0.09} side={THREE.BackSide} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
+
+      {/* Aurora sparkles at poles */}
+      <Sparkles position={[0,  2.12, 0]} count={120} scale={[1.3, 0.25, 1.3]} size={1.2} speed={0.4} color="#00ff88" opacity={0.18} />
+      <Sparkles position={[0, -2.12, 0]} count={120} scale={[1.3, 0.25, 1.3]} size={1.2} speed={0.4} color="#44aaff" opacity={0.18} />
     </group>
   );
 }
 
 /* ── Debris Particle with trail ───────────────────────────────── */
 function DebrisParticle({ index }: { index: number }) {
-  const particleRef = useRef<THREE.Mesh>(null);
+  const particleRef = useRef<THREE.Group>(null);
   const trailRef = useRef<THREE.Line>(null);
   const positions = useRef<THREE.Vector3[]>([]);
   const MAX_TRAIL = 20;
@@ -158,12 +224,14 @@ function DebrisParticle({ index }: { index: number }) {
     return line;
   }, [color]);
 
+  const type = Math.random() > 0.5 ? 'Fragment' : 'Unknown';
+  const riskLevel = color === '#ff2d55' ? 'CRITICAL' : 'HIGH';
+
   return (
     <group>
-      <mesh ref={particleRef}>
-        <sphereGeometry args={[0.015, 8, 8]} />
-        <meshBasicMaterial color={color} />
-      </mesh>
+      <group ref={particleRef}>
+        <DebrisObject type={type} riskLevel={riskLevel} name={`Debris ${index}`} />
+      </group>
       <primitive object={lineObj} />
     </group>
   );
@@ -171,8 +239,7 @@ function DebrisParticle({ index }: { index: number }) {
 
 /* ── ISRO-SAT1 ─────────────────────────────────────────────────── */
 function Satellite() {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const lightRef = useRef<THREE.PointLight>(null);
+  const groupRef = useRef<THREE.Group>(null);
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
@@ -182,21 +249,12 @@ function Satellite() {
     const y = 2.5 * Math.sin(inclination) * Math.sin(angle * 0.3);
     const z = 2.5 * Math.sin(angle) * Math.cos(inclination);
 
-    if (meshRef.current) meshRef.current.position.set(x, y, z);
-    if (lightRef.current) lightRef.current.position.set(x, y, z);
+    if (groupRef.current) groupRef.current.position.set(x, y, z);
   });
 
   return (
-    <group>
-      <mesh ref={meshRef}>
-        <sphereGeometry args={[0.03, 16, 16]} />
-        <meshStandardMaterial
-          color="#00d4ff"
-          emissive="#00d4ff"
-          emissiveIntensity={0.8}
-        />
-      </mesh>
-      <pointLight ref={lightRef} color="#00d4ff" intensity={0.5} distance={3} />
+    <group ref={groupRef}>
+      <SatelliteModel />
     </group>
   );
 }
@@ -247,14 +305,17 @@ function SceneContent() {
       <directionalLight position={[-8, -2, -6]} intensity={0.4} color="#38bdf8" />
       <pointLight position={[0, 8, 2]} intensity={0.3} color="#00d4ff" />
       {/* 3D Solar System Background (Sun, Moon, Planets, Asteroid Belt, Cosmic Dust) */}
-      <SolarSystemBackground />
+      <SolarSystemBackground hideLabels={true} />
 
-      <Earth />
-      <OrbitRings />
-      <Satellite />
-      {Array.from({ length: 40 }, (_, i) => (
-        <DebrisParticle key={i} index={i} />
-      ))}
+      {/* Move Earth and its immediate orbit elements to the side so it doesn't block the main text */}
+      <group position={[3.5, -0.5, -2]}>
+        <Earth />
+        <OrbitRings />
+        <Satellite />
+        {Array.from({ length: 40 }, (_, i) => (
+          <DebrisParticle key={i} index={i} />
+        ))}
+      </group>
       <CameraRig />
     </>
   );
@@ -359,9 +420,10 @@ export default function IntroScene({ onEnter }: IntroSceneProps) {
                 letterSpacing: '0.2em',
                 marginBottom: 20,
                 textAlign: 'center',
+                textShadow: '0 2px 8px rgba(0,0,0,0.8)',
               }}
             >
-              DEPARTMENT OF SPACE · ISRO · PS09
+              DEPARTMENT OF SPACE · ISRO
             </motion.div>
 
             {/* Main title */}
@@ -377,6 +439,7 @@ export default function IntroScene({ onEnter }: IntroSceneProps) {
                 lineHeight: 1,
                 marginBottom: 16,
                 textAlign: 'center',
+                textShadow: '0 4px 24px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,1)',
               }}
             >
               <span style={{ color: '#ffffff' }}>ORBIT</span>
@@ -391,31 +454,16 @@ export default function IntroScene({ onEnter }: IntroSceneProps) {
               style={{
                 fontFamily: 'Inter, sans-serif',
                 fontSize: 18,
-                color: 'rgba(255,255,255,0.5)',
+                color: 'rgba(255,255,255,0.7)',
                 marginBottom: 16,
                 textAlign: 'center',
+                textShadow: '0 2px 10px rgba(0,0,0,0.8)',
               }}
             >
               Space Debris Collision Risk Estimator
             </motion.p>
 
-            {/* Disclaimer */}
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 2.4, duration: 0.8 }}
-              style={{
-                fontFamily: 'JetBrains Mono, monospace',
-                fontSize: 11,
-                color: 'rgba(255,149,0,0.6)',
-                marginBottom: 40,
-                textAlign: 'center',
-                maxWidth: 480,
-                lineHeight: 1.6,
-              }}
-            >
-              ⚠ All outputs are approximate. Full perturbation modeling not included.
-            </motion.p>
+
 
             {/* CTA Button */}
             <motion.div

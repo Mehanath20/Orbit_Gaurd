@@ -191,6 +191,20 @@ export function getOrbitPoints(tle1: string, tle2: string, numPoints = 360): THR
 
   const points: THREE.Vector3[] = [];
   const now = new Date();
+  
+  if (tle1.includes('99999U')) {
+    // This is the KILLER-DEBRIS (APOPHIS-99)
+    // Create a straight trajectory from deep space towards Earth [0,0,0]
+    const startPoint = new THREE.Vector3(15, 8, -12); // Coming from "above and behind"
+    for (let i = 0; i < numPoints; i++) {
+      // Linearly interpolate from startPoint to [0,0,0]
+      const t = i / (numPoints - 1);
+      const p = new THREE.Vector3().copy(startPoint).lerp(new THREE.Vector3(0, 0, 0), t);
+      points.push(p);
+    }
+    return points;
+  }
+
   // One full orbit ~ 92 minutes for LEO
   const orbitalPeriodMinutes = 92;
   const intervalMinutes = orbitalPeriodMinutes / numPoints;
@@ -221,4 +235,28 @@ export function getCurrentPosition(tle1: string, tle2: string, offsetMinutes = 0
   if (!pos) return null;
 
   return new THREE.Vector3(pos.x * SCALE, pos.z * SCALE, -pos.y * SCALE);
+}
+
+export function getLiveGeodetic(tle1: string, tle2: string, date: Date = new Date()) {
+  const satrec = parseTLE(tle1, tle2);
+  if (!satrec) return null;
+
+  const posVel = satellite.propagate(satrec, date);
+  if (!posVel || typeof posVel.position === 'boolean' || !posVel.position) return null;
+  
+  const gmst = satellite.gstime(date);
+  const positionEci = posVel.position as satellite.EciVec3<number>;
+  const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+  
+  const longitude = satellite.degreesLong(positionGd.longitude);
+  const latitude = satellite.degreesLat(positionGd.latitude);
+  const height = positionGd.height;
+  
+  let velocity = 7.66;
+  if (posVel.velocity && typeof posVel.velocity !== 'boolean') {
+    const v = posVel.velocity as satellite.EciVec3<number>;
+    velocity = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  }
+
+  return { latitude, longitude, height, velocity };
 }

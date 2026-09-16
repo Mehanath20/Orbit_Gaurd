@@ -16,6 +16,7 @@ interface RiskTableProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onOpenModal: (result: ClosestApproachResult) => void;
+  onIntercept: (id: string) => void;
   riskFilter: 'ALL' | 'HIGH+' | 'CRITICAL';
 }
 
@@ -51,6 +52,7 @@ export default function RiskTable({
   selectedId,
   onSelect,
   onOpenModal,
+  onIntercept,
   riskFilter,
 }: RiskTableProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -103,7 +105,7 @@ export default function RiskTable({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) 68px 65px 76px 42px',
+          gridTemplateColumns: 'minmax(0, 1fr) 45px 55px 65px 85px',
           gap: 6,
           padding: '0 6px 8px',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
@@ -173,7 +175,7 @@ export default function RiskTable({
                 transition={{ delay: i * 0.04, duration: 0.25 }}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'minmax(0, 1fr) 68px 65px 76px 42px',
+                  gridTemplateColumns: 'minmax(0, 1fr) 45px 55px 65px 85px',
                   gap: 6,
                   padding: '7px 6px',
                   borderRadius: 6,
@@ -184,10 +186,11 @@ export default function RiskTable({
                       ? `rgba(${color === '#ff2d55' ? '255,45,85' : color === '#ff9500' ? '255,149,0' : '0,212,255'},0.1)`
                       : isHovered
                       ? 'rgba(255,255,255,0.04)'
-                      : 'transparent',
+                      : (result.riskLevel === 'CRITICAL' ? 'rgba(255,45,85,0.05)' : 'transparent'),
                   transition: 'background 0.15s ease',
                   alignItems: 'center',
                   marginBottom: 2,
+                  animation: result.riskLevel === 'CRITICAL' && !isSelected && !isHovered ? 'pulse-row-critical 1.5s ease-in-out infinite' : 'none',
                 }}
                 onMouseEnter={() => setHoveredId(result.debrisId)}
                 onMouseLeave={() => setHoveredId(null)}
@@ -224,6 +227,11 @@ export default function RiskTable({
                   >
                     {result.objectType}
                   </div>
+                  {result.riskLevel === 'CRITICAL' && (
+                    <div style={{ fontSize: 7, color: '#ff2d55', marginTop: 3, fontWeight: 600, whiteSpace: 'nowrap', opacity: 0.8 }}>
+                      Click row for details or Intercept ➔
+                    </div>
+                  )}
                 </div>
 
                 {/* Distance */}
@@ -275,27 +283,56 @@ export default function RiskTable({
                   </span>
                 </div>
 
-                {/* Track button */}
+                {/* Action button */}
                 <div style={{ display: 'flex', justifyContent: 'center', minWidth: 0 }}>
-                  <button
-                    className="btn-cyan"
-                    style={{
-                      padding: '2px 5px',
-                      fontSize: 8,
-                      borderRadius: 4,
-                      letterSpacing: '0.04em',
-                      opacity: isHovered || isSelected ? 1 : 0.35,
-                      transition: 'opacity 0.15s ease',
-                      borderWidth: '1px',
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelect(result.debrisId);
-                      onOpenModal(result);
-                    }}
-                  >
-                    {isSelected ? 'ON' : 'VIEW'}
-                  </button>
+                  {(result.riskLevel === 'CRITICAL' || result.riskLevel === 'HIGH') ? (
+                    <button
+                      style={{
+                        padding: '3px 4px',
+                        fontSize: 7.5,
+                        borderRadius: 4,
+                        letterSpacing: '0.02em',
+                        border: '1px solid rgba(255, 45, 85, 0.8)',
+                        background: 'rgba(255, 45, 85, 0.15)',
+                        color: '#ff2d55',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        boxShadow: '0 0 8px rgba(255, 45, 85, 0.4)',
+                        width: '100%',
+                        textAlign: 'center',
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelect(result.debrisId);
+                        onIntercept(result.debrisId);
+                      }}
+                    >
+                      ⚠ INTERCEPT
+                    </button>
+                  ) : (
+                    <button
+                      className="btn-cyan"
+                      style={{
+                        padding: '2px 4px',
+                        fontSize: 8,
+                        borderRadius: 4,
+                        letterSpacing: '0.02em',
+                        opacity: isHovered || isSelected ? 1 : 0.35,
+                        transition: 'opacity 0.15s ease',
+                        borderWidth: '1px',
+                        cursor: 'pointer',
+                        width: '100%',
+                        textAlign: 'center',
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelect(result.debrisId);
+                        onOpenModal(result);
+                      }}
+                    >
+                      {isSelected ? 'ON' : 'TRACK'}
+                    </button>
+                  )}
                 </div>
               </motion.div>
             );

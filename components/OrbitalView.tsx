@@ -3,11 +3,16 @@
 import { useRef, useEffect, useState, Suspense, useMemo, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, Html, Line } from '@react-three/drei';
+import { EffectComposer, Bloom, Vignette, Noise, ChromaticAberration } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import type { ClosestApproachResult } from '../lib/types';
 import { PRIMARY_SATELLITE, DEBRIS_OBJECTS } from '../lib/dataset';
 import { getOrbitPoints } from '../lib/orbitEngine';
 import SolarSystemBackground from './SolarSystemBackground';
+import InterceptSequence from './InterceptSequence';
+import Satellite from './models/Satellite';
+import DebrisObject from './models/DebrisObject';
+import Earth from './models/Earth';
 
 const RISK_COLORS: Record<string, string> = {
   CRITICAL: '#ff2d55',
@@ -16,112 +21,7 @@ const RISK_COLORS: Record<string, string> = {
   LOW: '#30d158',
 };
 
-/* ── Realistic 3D Earth ─────────────────────────────────────────── */
-function Earth() {
-  const earthRef = useRef<THREE.Mesh>(null);
-  const cloudsRef = useRef<THREE.Mesh>(null);
-  const atmosphereRef = useRef<THREE.Mesh>(null);
-
-  const [textures, setTextures] = useState<{
-    map: THREE.Texture | null;
-    bumpMap: THREE.Texture | null;
-    roughnessMap: THREE.Texture | null;
-    cloudsMap: THREE.Texture | null;
-  }>({
-    map: null,
-    bumpMap: null,
-    roughnessMap: null,
-    cloudsMap: null,
-  });
-
-  useEffect(() => {
-    const loader = new THREE.TextureLoader();
-    loader.load('/textures/earth-blue-marble.jpg', (map) => {
-      map.colorSpace = THREE.SRGBColorSpace;
-      setTextures((prev) => ({ ...prev, map }));
-    });
-    loader.load('/textures/earth-topology.png', (bumpMap) => {
-      setTextures((prev) => ({ ...prev, bumpMap }));
-    });
-    loader.load('/textures/earth-water.png', (roughnessMap) => {
-      setTextures((prev) => ({ ...prev, roughnessMap }));
-    });
-    loader.load('/textures/earth-clouds.png', (cloudsMap) => {
-      setTextures((prev) => ({ ...prev, cloudsMap }));
-    });
-  }, []);
-
-  useFrame((_, delta) => {
-    if (earthRef.current) {
-      earthRef.current.rotation.y += delta * 0.03;
-    }
-    if (cloudsRef.current) {
-      // Dynamic cloud layer with realistic parallax drift
-      cloudsRef.current.rotation.y += delta * 0.042;
-      cloudsRef.current.rotation.x += delta * 0.003;
-    }
-    if (atmosphereRef.current) {
-      atmosphereRef.current.rotation.y += delta * 0.03;
-    }
-  });
-
-  return (
-    <group>
-      {/* 1. Earth Sphere (Day texture, bump relief & ocean specular) */}
-      <mesh ref={earthRef}>
-        <sphereGeometry args={[2, 64, 64]} />
-        <meshStandardMaterial
-          map={textures.map || undefined}
-          bumpMap={textures.bumpMap || undefined}
-          bumpScale={0.06}
-          roughnessMap={textures.roughnessMap || undefined}
-          roughness={0.65}
-          metalness={0.12}
-          color={textures.map ? '#ffffff' : '#1e3a8a'}
-        />
-      </mesh>
-
-      {/* 2. Cloud Layer with Parallax Rotation */}
-      <mesh ref={cloudsRef}>
-        <sphereGeometry args={[2.025, 64, 64]} />
-        {textures.cloudsMap ? (
-          <meshStandardMaterial
-            map={textures.cloudsMap}
-            transparent={true}
-            opacity={0.4}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-          />
-        ) : null}
-      </mesh>
-
-      {/* 3. Outer Atmospheric Haze & Rayleigh Scattering */}
-      <mesh ref={atmosphereRef}>
-        <sphereGeometry args={[2.08, 64, 64]} />
-        <meshBasicMaterial
-          color="#00b4d8"
-          transparent
-          opacity={0.12}
-          side={THREE.BackSide}
-          blending={THREE.AdditiveBlending}
-        />
-      </mesh>
-
-      {/* 4. Subtle Inner Atmospheric Rim */}
-      <mesh>
-        <sphereGeometry args={[2.04, 32, 32]} />
-        <meshBasicMaterial
-          color="#48cae4"
-          transparent
-          opacity={0.05}
-          side={THREE.FrontSide}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-        />
-      </mesh>
-    </group>
-  );
-}
+/* ── Realistic 3D Earth moved to components/models/Earth.tsx ── */
 
 /* ── Orbit Path Line ────────────────────────────────────────────── */
 function OrbitPath({
@@ -145,49 +45,59 @@ function OrbitPath({
   );
 }
 
-/* ── Satellite Marker (ISRO-SAT1) ────────────────────────────────── */
+// Removed RealisticSatellite (now in components/models/Satellite.tsx)
+
+/* ── Satellite Marker (ISRO-SAT1) ───────────────────────────────── */
 function SatelliteMarker({
   orbitPoints,
   onPositionUpdate,
+  isSelected,
+  onSelect,
+  onHover,
 }: {
   orbitPoints: THREE.Vector3[];
   onPositionUpdate: (pos: THREE.Vector3) => void;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+  onHover?: (id: string | null) => void;
 }) {
-  const meshRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
   const lightRef = useRef<THREE.PointLight>(null);
   const timeRef = useRef(0);
+  const [hovered, setHovered] = useState(false);
 
   useFrame((_, delta) => {
-    timeRef.current += delta * 0.06; // orbital speed
+    timeRef.current += delta * 0.06;
     if (orbitPoints.length === 0) return;
-
     const t = timeRef.current % 1;
     const idx = Math.floor(t * orbitPoints.length);
     const pos = orbitPoints[idx % orbitPoints.length];
-
-    if (meshRef.current && pos) {
-      meshRef.current.position.copy(pos);
+    const nextIdx = (idx + 1) % orbitPoints.length;
+    const nextPos = orbitPoints[nextIdx];
+    if (groupRef.current && pos) {
+      groupRef.current.position.copy(pos);
+      if (nextPos) { groupRef.current.lookAt(nextPos); groupRef.current.rotateX(-Math.PI / 4); }
       onPositionUpdate(pos.clone());
     }
-    if (lightRef.current && pos) {
-      lightRef.current.position.copy(pos);
-    }
+    if (lightRef.current && pos) lightRef.current.position.copy(pos);
   });
 
   return (
-    <group>
-      <mesh ref={meshRef}>
-        <sphereGeometry args={[0.04, 16, 16]} />
-        <meshStandardMaterial
-          color="#00d4ff"
-          emissive="#00d4ff"
-          emissiveIntensity={1.0}
-        />
-      </mesh>
-      <pointLight ref={lightRef} color="#00d4ff" intensity={0.8} distance={2} />
+    <group ref={groupRef}
+      onPointerOver={(e) => { e.stopPropagation(); setHovered(true);  onHover?.('satellite'); }}
+      onPointerOut={(e)  => { e.stopPropagation(); setHovered(false); onHover?.(null); }}
+    >
+      <OrbitPath points={orbitPoints.slice(0, 30)} color="#00d4ff" opacity={0.4} />
+      <Satellite
+        position={orbitPoints[0]}
+        isSelected={isSelected}
+        isHovered={hovered}
+        onClick={() => onSelect('satellite')}
+      />
     </group>
   );
 }
+
 
 /* ── Debris Marker ────────────────────────────────────────────────── */
 function DebrisMarker({
@@ -197,6 +107,7 @@ function DebrisMarker({
   onHover,
   onSelect,
   onPositionUpdate,
+  isTargeted,
 }: {
   orbitPoints: THREE.Vector3[];
   result: ClosestApproachResult;
@@ -204,70 +115,55 @@ function DebrisMarker({
   onHover: (id: string | null) => void;
   onSelect: (id: string) => void;
   onPositionUpdate: (id: string, pos: THREE.Vector3) => void;
+  isTargeted?: boolean;
 }) {
-  const meshRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
   const timeRef = useRef(Math.random()); // stagger start position
   const [hovered, setHovered] = useState(false);
 
-  const color = RISK_COLORS[result.riskLevel] || '#ffffff';
-  const scale = isSelected ? 2 : hovered ? 1.5 : 1;
-
   useFrame((_, delta) => {
-    timeRef.current += delta * (0.05 + Math.random() * 0.001);
+    // Increase speed 3x if targeted for dramatic effect
+    const speed = isTargeted ? (0.05 + Math.random() * 0.001) * 3 : (0.05 + Math.random() * 0.001);
+    timeRef.current += delta * speed;
     if (orbitPoints.length === 0) return;
 
     const t = timeRef.current % 1;
     const idx = Math.floor(t * orbitPoints.length);
     const pos = orbitPoints[idx % orbitPoints.length];
 
-    if (meshRef.current && pos) {
-      meshRef.current.position.lerp(pos, 0.2);
+    if (groupRef.current && pos) {
+      groupRef.current.position.lerp(pos, 0.2);
       onPositionUpdate(result.debrisId, pos.clone());
     }
   });
 
   return (
-    <mesh
-      ref={meshRef}
-      scale={[scale, scale, scale]}
-      onPointerOver={() => {
+    <group
+      ref={groupRef}
+      onPointerOver={(e) => {
+        e.stopPropagation();
         setHovered(true);
         onHover(result.debrisId);
       }}
-      onPointerOut={() => {
+      onPointerOut={(e) => {
+        e.stopPropagation();
         setHovered(false);
         onHover(null);
       }}
-      onClick={() => onSelect(result.debrisId)}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect(result.debrisId);
+      }}
     >
-      <sphereGeometry args={[0.025, 12, 12]} />
-      <meshStandardMaterial
-        color={color}
-        emissive={color}
-        emissiveIntensity={isSelected ? 1.0 : 0.7}
+      <DebrisObject
+        type={result.objectType}
+        riskLevel={result.riskLevel}
+        distanceKm={result.minDistance_km}
+        name={result.debrisName}
+        isSelected={isSelected}
+        isHovered={hovered}
       />
-      {(hovered || isSelected) && (
-        <Html distanceFactor={8} style={{ pointerEvents: 'none' }}>
-          <div
-            style={{
-              background: 'rgba(0,0,0,0.85)',
-              border: `1px solid ${color}`,
-              borderRadius: 6,
-              padding: '4px 8px',
-              color,
-              fontFamily: 'JetBrains Mono, monospace',
-              fontSize: 10,
-              whiteSpace: 'nowrap',
-              backdropFilter: 'blur(8px)',
-            }}
-          >
-            {result.debrisName}
-            <br />
-            <span style={{ color: '#fff' }}>{result.minDistance_km.toFixed(2)} km</span>
-          </div>
-        </Html>
-      )}
-    </mesh>
+    </group>
   );
 }
 
@@ -335,7 +231,8 @@ function CameraController({
 
   useEffect(() => {
     if (selectedPos) {
-      targetCamPos.current = selectedPos.clone().add(new THREE.Vector3(1.2, 1.2, 2.2));
+      // Pull camera further back so the Earth isn't just a massive wall blocking the view
+      targetCamPos.current = selectedPos.clone().add(new THREE.Vector3(3.5, 2.5, 4.5));
     } else if (viewMode === 'ORRERY') {
       targetCamPos.current = new THREE.Vector3(22, 34, 46);
     } else if (viewMode === 'EARTH') {
@@ -352,6 +249,15 @@ function CameraController({
         targetCamPos.current = null;
       }
     }
+    // Access controls via state if makeDefault is set on OrbitControls
+    const controls = (camera as any).controls; 
+    // Fallback: manually find OrbitControls if not registered
+    const orbitControls = controls || (window as any)._orbitControls;
+    if (orbitControls) {
+      const targetLook = selectedPos ? selectedPos.clone() : new THREE.Vector3(0, 0, 0);
+      orbitControls.target.lerp(targetLook, 0.04);
+      orbitControls.update();
+    }
   });
 
   return null;
@@ -362,14 +268,110 @@ interface SceneProps {
   results: ClosestApproachResult[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onSatPosUpdate: (pos: THREE.Vector3) => void;
-  viewMode: 'EARTH' | 'ORRERY' | 'SAT';
+  onSatPosUpdate?: (pos: THREE.Vector3) => void;
+  viewMode?: 'EARTH' | 'ORRERY' | 'SAT';
+  interceptTargetId?: string | null;
+  onInterceptComplete?: () => void;
+  isImpacted?: boolean;
+  extraDebris?: import('../lib/types').DebrisObject[];
+  onHoverChange?: (info: { id: string; label: string; sub: string; color: string } | null) => void;
 }
 
-function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate, viewMode }: SceneProps) {
+function EarthImpactSequence() {
+  const explosionRef = useRef<THREE.Points>(null);
+  const flashLightRef = useRef<THREE.PointLight>(null);
+  const startTime = useRef(Date.now());
+  const particlesCount = 2000;
+  
+  const [initialPos] = useState(() => {
+    const pos = new Float32Array(particlesCount * 3);
+    for (let i = 0; i < particlesCount; i++) {
+      const r = Math.random() * 0.5;
+      const theta = Math.random() * 2 * Math.PI;
+      const phi = Math.acos(2 * Math.random() - 1);
+      pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      pos[i * 3 + 2] = r * Math.cos(phi);
+    }
+    return pos;
+  });
+
+  useFrame(() => {
+    const t = (Date.now() - startTime.current) / 5000;
+    if (explosionRef.current) {
+      const positionsAttr = explosionRef.current.geometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < particlesCount; i++) {
+        // Expand rapidly then slow down
+        const expansion = Math.max(0.01, (1 - t) * 0.2);
+        positionsAttr.array[i * 3] += positionsAttr.array[i * 3] * expansion;
+        positionsAttr.array[i * 3 + 1] += positionsAttr.array[i * 3 + 1] * expansion;
+        positionsAttr.array[i * 3 + 2] += positionsAttr.array[i * 3 + 2] * expansion;
+      }
+      positionsAttr.needsUpdate = true;
+      (explosionRef.current.material as THREE.PointsMaterial).opacity = Math.max(0, 1 - t * 0.5);
+    }
+    if (flashLightRef.current) {
+      flashLightRef.current.intensity = Math.max(0, 50 * (1 - t * 2));
+    }
+  });
+
+  return (
+    <group position={[0,0,0]}>
+      <points ref={explosionRef}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" count={particlesCount} array={initialPos} itemSize={3} />
+        </bufferGeometry>
+        <pointsMaterial size={0.15} color="#ff3300" transparent opacity={1} blending={THREE.AdditiveBlending} depthWrite={false} sizeAttenuation={true} />
+      </points>
+      <pointLight ref={flashLightRef} color="#ffaa00" intensity={50} distance={100} />
+      <Html center zIndexRange={[100, 0]}>
+        <div style={{
+          background: 'rgba(255,45,85,0.4)', width: '100vw', height: '100vh', position: 'fixed',
+          top: '50%', left: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 9999,
+          animation: 'flash-fade 1s ease-out forwards'
+        }} />
+      </Html>
+    </group>
+  );
+}
+
+function OrbitalScene({
+  results,
+  selectedId,
+  onSelect,
+  onSatPosUpdate,
+  viewMode = 'ORRERY',
+  interceptTargetId,
+  onInterceptComplete,
+  isImpacted = false,
+  extraDebris = [],
+  onHoverChange,
+}: SceneProps) {
+  const RISK_COLORS_LOCAL: Record<string, string> = {
+    CRITICAL: '#ff2d55', HIGH: '#ff9500', MODERATE: '#ffd60a', LOW: '#30d158',
+  };
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const debrisPosMap = useRef<Map<string, THREE.Vector3>>(new Map());
   const satPos = useRef<THREE.Vector3 | null>(null);
+
+  // Notify parent of hover info changes
+  const handleHover = useCallback((id: string | null) => {
+    setHoveredId(id);
+    if (!id) { onHoverChange?.(null); return; }
+    if (id === 'satellite') {
+      onHoverChange?.({ id: 'satellite', label: 'ISRO-SAT1', sub: 'LEO · Alt 408 km · 7.66 km/s\nInclination 51.6° · Active', color: '#00d4ff' });
+      return;
+    }
+    const r = results.find(x => x.debrisId === id);
+    if (r) {
+      onHoverChange?.({
+        id,
+        label: r.debrisName,
+        sub: `${r.objectType} · NORAD ${r.noradId ?? 'N/A'}\nClosest: ${r.minDistance_km.toFixed(1)} km`,
+        color: RISK_COLORS_LOCAL[r.riskLevel] || '#ffffff',
+      });
+    }
+  }, [onHoverChange, results]);
 
   // Compute orbit points for all objects
   const satOrbitPoints = useMemo(
@@ -378,16 +380,16 @@ function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate, viewMode 
   );
 
   const debrisOrbitPoints = useMemo(() => {
-    return DEBRIS_OBJECTS.map((d) => ({
+    return [...DEBRIS_OBJECTS, ...extraDebris].map((d) => ({
       id: d.id,
       points: getOrbitPoints(d.tle1, d.tle2, 360),
     }));
-  }, []);
+  }, [extraDebris]);
 
   const handleSatPos = useCallback(
     (pos: THREE.Vector3) => {
       satPos.current = pos;
-      onSatPosUpdate(pos);
+      if (onSatPosUpdate) onSatPosUpdate(pos);
     },
     [onSatPosUpdate]
   );
@@ -414,9 +416,10 @@ function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate, viewMode 
       <pointLight position={[0, 8, 2]} intensity={0.3} color="#00d4ff" />
 
       {/* 3D Solar System (Sun, Moon, Mars, Jupiter, Saturn, Asteroid Belt, Stars, Nebulae) */}
-      <SolarSystemBackground />
+      <SolarSystemBackground onSelectPlanet={onSelect} />
 
-      <Earth />
+      {!isImpacted && <Earth />}
+      {isImpacted && <EarthImpactSequence />}
 
       {/* ISRO-SAT1 orbit path */}
       <OrbitPath
@@ -429,6 +432,9 @@ function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate, viewMode 
       <SatelliteMarker
         orbitPoints={satOrbitPoints}
         onPositionUpdate={handleSatPos}
+        isSelected={selectedId === 'PRIMARY_SATELLITE'}
+        onSelect={onSelect}
+        onHover={handleHover}
       />
 
       {/* Debris orbit paths and markers */}
@@ -446,13 +452,24 @@ function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate, viewMode 
               orbitPoints={orbitData.points}
               result={result}
               isSelected={selectedId === result.debrisId}
-              onHover={setHoveredId}
+              onHover={handleHover}
               onSelect={onSelect}
               onPositionUpdate={handleDebrisPos}
+              isTargeted={interceptTargetId === result.debrisId}
             />
           </group>
         );
       })}
+
+      {/* Intercept Sequence */}
+      {interceptTargetId && (
+        <InterceptSequence 
+          debrisPos={debrisPosMap.current.get(interceptTargetId) || null} 
+          onComplete={() => {
+            if (onInterceptComplete) onInterceptComplete();
+          }} 
+        />
+      )}
 
       {/* Closest approach visualization */}
       <ClosestApproachViz
@@ -463,11 +480,15 @@ function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate, viewMode 
       {/* Camera + controls */}
       <CameraController selectedPos={selectedPos} viewMode={viewMode} satPos={satPos.current} />
       <OrbitControls
+        makeDefault // Registers controls so we can access via useThree().controls or camera.controls
+        ref={(c) => { if (c) (window as any)._orbitControls = c; }}
         enableDamping
         dampingFactor={0.06}
         minDistance={2.5}
         maxDistance={250}
         enablePan={true}
+        autoRotate={true}
+        autoRotateSpeed={0.7}
       />
     </>
   );
@@ -506,7 +527,7 @@ function OverlayUI({ results, selectedId, viewMode, onViewModeChange }: OverlayP
       >
         <button
           onClick={() => onViewModeChange('ORRERY')}
-          className={`btn-pill ${viewMode === 'ORRERY' ? 'active' : ''}`}
+          className={`btn-pill ${viewMode === 'ORRERY' ? 'active' : 'btn-pill-blink'}`}
           style={{ fontSize: 9.5, padding: '4px 12px' }}
         >
           🪐 SOLAR SYSTEM
@@ -520,7 +541,7 @@ function OverlayUI({ results, selectedId, viewMode, onViewModeChange }: OverlayP
         </button>
         <button
           onClick={() => onViewModeChange('SAT')}
-          className={`btn-pill ${viewMode === 'SAT' ? 'active' : ''}`}
+          className={`btn-pill ${viewMode === 'SAT' ? 'active' : 'btn-pill-blink'}`}
           style={{ fontSize: 9.5, padding: '4px 12px' }}
         >
           🛰️ SATELLITE
@@ -654,12 +675,43 @@ interface OrbitalViewProps {
   results: ClosestApproachResult[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  viewMode?: 'EARTH' | 'ORRERY' | 'SAT';
+  interceptTargetId?: string | null;
+  onInterceptComplete?: () => void;
 }
 
-export default function OrbitalView({ results, selectedId, onSelect }: OrbitalViewProps) {
+export default function OrbitalView({
+  results,
+  selectedId,
+  onSelect,
+  viewMode: propViewMode = 'EARTH',
+  interceptTargetId,
+  onInterceptComplete,
+  isImpacted,
+  extraDebris = [],
+}: OrbitalViewProps & { isImpacted?: boolean; extraDebris?: import('../lib/types').DebrisObject[] }) {
   const [satPos, setSatPos] = useState<THREE.Vector3 | null>(null);
-  const [viewMode, setViewMode] = useState<'EARTH' | 'ORRERY' | 'SAT'>('ORRERY');
+  const [viewMode, setViewMode] = useState<'EARTH' | 'ORRERY' | 'SAT'>(propViewMode);
   const [webglOk, setWebglOk] = useState(true);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [hoveredInfo, setHoveredInfo] = useState<{ id: string; label: string; sub: string; color: string } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Build a quick lookup for debris results
+  const resultMap = useMemo(() => {
+    const m: Record<string, ClosestApproachResult> = {};
+    results.forEach(r => { m[r.debrisId] = r; });
+    return m;
+  }, [results]);
+
+  // Track mouse position
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: MouseEvent) => setMousePos({ x: e.clientX, y: e.clientY });
+    el.addEventListener('mousemove', handler);
+    return () => el.removeEventListener('mousemove', handler);
+  }, []);
 
   useEffect(() => {
     try {
@@ -696,20 +748,43 @@ export default function OrbitalView({ results, selectedId, onSelect }: OrbitalVi
   }
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
       <Canvas
+        shadows={{ type: THREE.PCFSoftShadowMap }}
         camera={{ position: [22, 34, 46], fov: 45 }}
-        gl={{ antialias: true, alpha: false }}
+        gl={{ 
+          antialias: true, 
+          alpha: false, 
+          logarithmicDepthBuffer: true,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 1.2,
+          outputColorSpace: THREE.SRGBColorSpace
+        }}
         style={{ background: '#000000' }}
+        onPointerMissed={() => setHoveredInfo(null)}
       >
         <Suspense fallback={null}>
           <OrbitalScene
             results={results}
             selectedId={selectedId}
-            onSelect={onSelect}
+            onSelect={(id) => {
+              if (id === 'satellite') { onSelect('satellite'); } else { onSelect(id); }
+            }}
             onSatPosUpdate={setSatPos}
             viewMode={viewMode}
+            interceptTargetId={interceptTargetId}
+            onInterceptComplete={onInterceptComplete}
+            isImpacted={isImpacted}
+            extraDebris={extraDebris}
+            onHoverChange={setHoveredInfo}
           />
+          <EffectComposer>
+            <Bloom luminanceThreshold={0.85} luminanceSmoothing={0.9} intensity={1.5} mipmapBlur={true} />
+            {/* @ts-expect-error - missing properties in current type definitions */}
+            <ChromaticAberration offset={new THREE.Vector2(0.0005, 0.0005)} />
+            <Noise opacity={0.025} />
+            <Vignette eskil={false} offset={0.1} darkness={1.1} />
+          </EffectComposer>
         </Suspense>
       </Canvas>
 
@@ -719,6 +794,49 @@ export default function OrbitalView({ results, selectedId, onSelect }: OrbitalVi
         viewMode={viewMode}
         onViewModeChange={setViewMode}
       />
+
+      {/* Cursor Tooltip */}
+      {hoveredInfo && (
+        <div
+          style={{
+            position: 'fixed',
+            left: mousePos.x + 18,
+            top: mousePos.y + 14,
+            zIndex: 9999,
+            pointerEvents: 'none',
+            background: 'rgba(0,0,0,0.88)',
+            backdropFilter: 'blur(12px)',
+            border: `1px solid ${hoveredInfo.color}66`,
+            borderRadius: 10,
+            padding: '10px 14px',
+            minWidth: 180,
+            boxShadow: `0 4px 24px ${hoveredInfo.color}33, 0 2px 8px rgba(0,0,0,0.8)`,
+          }}
+        >
+          <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, fontWeight: 700, color: hoveredInfo.color, marginBottom: 4 }}>
+            {hoveredInfo.id === 'satellite' ? '🛰' : '☄'} {hoveredInfo.label}
+          </div>
+          <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 10.5, color: 'rgba(255,255,255,0.65)', lineHeight: 1.6 }}>
+            {hoveredInfo.sub}
+          </div>
+          {hoveredInfo.id !== 'satellite' && resultMap[hoveredInfo.id] && (
+            <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 9, background: `${hoveredInfo.color}22`, border: `1px solid ${hoveredInfo.color}55`, borderRadius: 4, padding: '1px 6px', color: hoveredInfo.color }}>
+                {resultMap[hoveredInfo.id].riskLevel}
+              </span>
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 9, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4, padding: '1px 6px', color: 'rgba(255,255,255,0.6)' }}>
+                {resultMap[hoveredInfo.id].minDistance_km.toFixed(1)} km
+              </span>
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 9, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4, padding: '1px 6px', color: 'rgba(255,255,255,0.6)' }}>
+                {resultMap[hoveredInfo.id].objectType}
+              </span>
+            </div>
+          )}
+          <div style={{ marginTop: 6, fontFamily: 'Inter, sans-serif', fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>
+            {hoveredInfo.id === 'satellite' ? 'Click to focus • Satellite view available' : 'Click to inspect • Click Intercept to neutralize'}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
