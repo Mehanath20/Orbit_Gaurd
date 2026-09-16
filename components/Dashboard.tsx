@@ -256,7 +256,7 @@ export default function Dashboard() {
         )}
 
         {/* Summary Cards */}
-        <SummaryCards results={results} />
+        <SummaryCards results={results} timeWindow={timeWindow} />
 
         {/* Input Controls */}
         <InputPanel

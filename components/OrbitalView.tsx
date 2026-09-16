@@ -15,38 +15,108 @@ const RISK_COLORS: Record<string, string> = {
   LOW: '#30d158',
 };
 
-/* ── Earth ─────────────────────────────────────────────────────── */
+/* ── Realistic 3D Earth ─────────────────────────────────────────── */
 function Earth() {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const [earthTexture, setEarthTexture] = useState<THREE.Texture | null>(null);
+  const earthRef = useRef<THREE.Mesh>(null);
+  const cloudsRef = useRef<THREE.Mesh>(null);
+  const atmosphereRef = useRef<THREE.Mesh>(null);
+
+  const [textures, setTextures] = useState<{
+    map: THREE.Texture | null;
+    bumpMap: THREE.Texture | null;
+    roughnessMap: THREE.Texture | null;
+    cloudsMap: THREE.Texture | null;
+  }>({
+    map: null,
+    bumpMap: null,
+    roughnessMap: null,
+    cloudsMap: null,
+  });
 
   useEffect(() => {
     const loader = new THREE.TextureLoader();
-    loader.load(
-      'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
-      (tex) => setEarthTexture(tex),
-      undefined,
-      () => setEarthTexture(null)
-    );
+    loader.load('/textures/earth-blue-marble.jpg', (map) => {
+      map.colorSpace = THREE.SRGBColorSpace;
+      setTextures((prev) => ({ ...prev, map }));
+    });
+    loader.load('/textures/earth-topology.png', (bumpMap) => {
+      setTextures((prev) => ({ ...prev, bumpMap }));
+    });
+    loader.load('/textures/earth-water.png', (roughnessMap) => {
+      setTextures((prev) => ({ ...prev, roughnessMap }));
+    });
+    loader.load('/textures/earth-clouds.png', (cloudsMap) => {
+      setTextures((prev) => ({ ...prev, cloudsMap }));
+    });
   }, []);
 
-  useFrame(() => {
-    if (meshRef.current) meshRef.current.rotation.y += 0.0008;
+  useFrame((_, delta) => {
+    if (earthRef.current) {
+      earthRef.current.rotation.y += delta * 0.03;
+    }
+    if (cloudsRef.current) {
+      // Dynamic cloud layer with realistic parallax drift
+      cloudsRef.current.rotation.y += delta * 0.042;
+      cloudsRef.current.rotation.x += delta * 0.003;
+    }
+    if (atmosphereRef.current) {
+      atmosphereRef.current.rotation.y += delta * 0.03;
+    }
   });
 
   return (
     <group>
-      <mesh ref={meshRef}>
+      {/* 1. Earth Sphere (Day texture, bump relief & ocean specular) */}
+      <mesh ref={earthRef}>
         <sphereGeometry args={[2, 64, 64]} />
-        {earthTexture ? (
-          <meshStandardMaterial map={earthTexture} />
-        ) : (
-          <meshStandardMaterial color="#1a3a5c" roughness={0.8} metalness={0.1} />
-        )}
+        <meshStandardMaterial
+          map={textures.map || undefined}
+          bumpMap={textures.bumpMap || undefined}
+          bumpScale={0.06}
+          roughnessMap={textures.roughnessMap || undefined}
+          roughness={0.65}
+          metalness={0.12}
+          color={textures.map ? '#ffffff' : '#1e3a8a'}
+        />
       </mesh>
+
+      {/* 2. Cloud Layer with Parallax Rotation */}
+      <mesh ref={cloudsRef}>
+        <sphereGeometry args={[2.025, 64, 64]} />
+        {textures.cloudsMap ? (
+          <meshStandardMaterial
+            map={textures.cloudsMap}
+            transparent={true}
+            opacity={0.4}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+          />
+        ) : null}
+      </mesh>
+
+      {/* 3. Outer Atmospheric Haze & Rayleigh Scattering */}
+      <mesh ref={atmosphereRef}>
+        <sphereGeometry args={[2.08, 64, 64]} />
+        <meshBasicMaterial
+          color="#00b4d8"
+          transparent
+          opacity={0.12}
+          side={THREE.BackSide}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+
+      {/* 4. Subtle Inner Atmospheric Rim */}
       <mesh>
-        <sphereGeometry args={[2.05, 64, 64]} />
-        <meshBasicMaterial color="#00aaff" transparent opacity={0.06} side={THREE.BackSide} />
+        <sphereGeometry args={[2.04, 32, 32]} />
+        <meshBasicMaterial
+          color="#48cae4"
+          transparent
+          opacity={0.05}
+          side={THREE.FrontSide}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
       </mesh>
     </group>
   );
@@ -321,9 +391,10 @@ function OrbitalScene({ results, selectedId, onSelect, onSatPosUpdate }: ScenePr
 
   return (
     <>
-      <ambientLight intensity={0.25} />
-      <directionalLight position={[10, 5, 5]} intensity={1.5} color="#ffffff" />
-      <pointLight position={[-5, -3, -2]} intensity={0.3} color="#0022ff" />
+      <ambientLight intensity={0.45} color="#dbeafe" />
+      <directionalLight position={[10, 6, 8]} intensity={2.2} color="#ffffff" />
+      <directionalLight position={[-10, -3, -6]} intensity={0.4} color="#38bdf8" />
+      <pointLight position={[0, 8, 2]} intensity={0.3} color="#00d4ff" />
 
       <Earth />
       <Stars radius={200} depth={60} count={3000} factor={4} saturation={0} fade />

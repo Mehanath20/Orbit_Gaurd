@@ -6,6 +6,7 @@ import type { ClosestApproachResult } from '../lib/types';
 
 interface SummaryCardsProps {
   results: ClosestApproachResult[];
+  timeWindow?: number;
 }
 
 /* ── Count-up hook ─────────────────────────────────────────────── */
@@ -56,7 +57,7 @@ function CountdownTimer({ targetDate }: { targetDate: Date }) {
     return () => clearInterval(interval);
   }, [targetDate]);
 
-  return <span>{timeStr}</span>;
+  return <span style={{ fontSize: 18, letterSpacing: '-0.02em' }}>{timeStr}</span>;
 }
 
 /* ── Single Stat Card ──────────────────────────────────────────── */
@@ -78,23 +79,29 @@ function StatCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.5, ease: 'easeOut' }}
       style={{
-        padding: '16px',
+        padding: '12px 8px',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
+        gap: 5,
         textAlign: 'center',
         cursor: 'default',
+        minWidth: 0,
+        overflow: 'hidden',
       }}
     >
       <div
         style={{
           fontFamily: 'JetBrains Mono, monospace',
           fontSize: 8,
-          color: 'rgba(255,255,255,0.35)',
-          letterSpacing: '0.15em',
+          color: 'rgba(255,255,255,0.4)',
+          letterSpacing: '0.12em',
           textTransform: 'uppercase',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          maxWidth: '100%',
         }}
       >
         {label}
@@ -102,10 +109,11 @@ function StatCard({
       <div
         style={{
           fontFamily: 'JetBrains Mono, monospace',
-          fontSize: 24,
+          fontSize: 20,
           fontWeight: 700,
           color: accent || '#ffffff',
-          lineHeight: 1,
+          lineHeight: 1.1,
+          whiteSpace: 'nowrap',
           ...(accent === '#ff2d55'
             ? { textShadow: '0 0 10px rgba(255,45,85,0.8)' }
             : {}),
@@ -118,7 +126,7 @@ function StatCard({
 }
 
 /* ── Summary Cards ─────────────────────────────────────────────── */
-export default function SummaryCards({ results }: SummaryCardsProps) {
+export default function SummaryCards({ results, timeWindow = 24 }: SummaryCardsProps) {
   const totalTracked = useCountUp(results.length + 1); // +1 for ISRO-SAT1
   const criticalCount = useCountUp(
     results.filter((r) => r.riskLevel === 'CRITICAL').length
@@ -134,7 +142,7 @@ export default function SummaryCards({ results }: SummaryCardsProps) {
       style={{
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
-        gap: 10,
+        gap: 8,
       }}
     >
       <StatCard
@@ -149,7 +157,7 @@ export default function SummaryCards({ results }: SummaryCardsProps) {
         delay={0.2}
       />
       <StatCard
-        label="Next Close Approach"
+        label="Next Conjunction"
         value={
           nextCA ? (
             <CountdownTimer targetDate={nextCA} />
@@ -162,7 +170,7 @@ export default function SummaryCards({ results }: SummaryCardsProps) {
       />
       <StatCard
         label="Analysis Window"
-        value="24 HRS"
+        value={`${timeWindow} HRS`}
         accent="#00d4ff"
         delay={0.4}
       />

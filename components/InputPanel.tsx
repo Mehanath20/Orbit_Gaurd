@@ -103,12 +103,13 @@ export default function InputPanel({
                 >
                   TIME WINDOW
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
                   {TIME_OPTIONS.map((h) => (
                     <button
                       key={h}
                       className={`btn-pill ${timeWindow === h ? 'active' : ''}`}
                       onClick={() => onTimeWindowChange(h)}
+                      style={{ textAlign: 'center', padding: '6px 0', width: '100%' }}
                     >
                       {h}H
                     </button>
@@ -129,12 +130,13 @@ export default function InputPanel({
                 >
                   RISK FILTER
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
                   {RISK_FILTERS.map((f) => (
                     <button
                       key={f}
                       className={`btn-pill ${riskFilter === f ? 'active' : ''}`}
                       onClick={() => onRiskFilterChange(f)}
+                      style={{ textAlign: 'center', padding: '6px 0', width: '100%' }}
                     >
                       {f}
                     </button>
@@ -166,7 +168,7 @@ export default function InputPanel({
                       letterSpacing: '0.15em',
                     }}
                   >
-                    ADD OBJECT
+                    ADD CUSTOM OBJECT
                   </span>
                   <motion.span
                     animate={{ rotate: addExpanded ? 45 : 0 }}
@@ -195,23 +197,27 @@ export default function InputPanel({
                     >
                       <input
                         className="glass-input"
-                        placeholder="Object name"
+                        placeholder="Object name (e.g. STARLINK-TEST)"
                         value={newObj.name}
                         onChange={(e) => setNewObj((o) => ({ ...o, name: e.target.value }))}
                         required
+                        style={{ fontSize: 11 }}
                       />
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
                         <div>
                           <div
                             style={{
                               fontFamily: 'JetBrains Mono, monospace',
                               fontSize: 8,
-                              color: 'rgba(255,255,255,0.3)',
+                              color: 'rgba(255,255,255,0.35)',
                               marginBottom: 4,
-                              letterSpacing: '0.1em',
+                              letterSpacing: '0.08em',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
                             }}
                           >
-                            ALTITUDE (km)
+                            ALT (km)
                           </div>
                           <input
                             className="glass-input"
@@ -224,6 +230,7 @@ export default function InputPanel({
                                 altitude_km: parseFloat(e.target.value) || 408,
                               }))
                             }
+                            style={{ fontSize: 11, padding: '6px 8px' }}
                           />
                         </div>
                         <div>
@@ -231,12 +238,15 @@ export default function InputPanel({
                             style={{
                               fontFamily: 'JetBrains Mono, monospace',
                               fontSize: 8,
-                              color: 'rgba(255,255,255,0.3)',
+                              color: 'rgba(255,255,255,0.35)',
                               marginBottom: 4,
-                              letterSpacing: '0.1em',
+                              letterSpacing: '0.08em',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
                             }}
                           >
-                            INCLINATION (°)
+                            INCL (°)
                           </div>
                           <input
                             className="glass-input"
@@ -249,6 +259,7 @@ export default function InputPanel({
                                 inclination_deg: parseFloat(e.target.value) || 51.6,
                               }))
                             }
+                            style={{ fontSize: 11, padding: '6px 8px' }}
                           />
                         </div>
                         <div>
@@ -256,9 +267,12 @@ export default function InputPanel({
                             style={{
                               fontFamily: 'JetBrains Mono, monospace',
                               fontSize: 8,
-                              color: 'rgba(255,255,255,0.3)',
+                              color: 'rgba(255,255,255,0.35)',
                               marginBottom: 4,
-                              letterSpacing: '0.1em',
+                              letterSpacing: '0.08em',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
                             }}
                           >
                             RAAN (°)
@@ -274,10 +288,11 @@ export default function InputPanel({
                                 raan_deg: parseFloat(e.target.value) || 0,
                               }))
                             }
+                            style={{ fontSize: 11, padding: '6px 8px' }}
                           />
                         </div>
                       </div>
-                      <button type="submit" className="btn-cyan" style={{ width: '100%', marginTop: 4 }}>
+                      <button type="submit" className="btn-cyan" style={{ width: '100%', marginTop: 4, padding: '8px' }}>
                         ADD TO SIMULATION
                       </button>
                     </motion.form>
